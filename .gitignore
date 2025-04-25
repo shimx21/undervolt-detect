@@ -1,0 +1,6 @@
+spec2017/**/*
+cpu2017-1.1.8.iso
+.git/*
+*/**/.*o
+local_docs/*
+voltage/src/*
