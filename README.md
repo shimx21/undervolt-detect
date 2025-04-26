@@ -37,7 +37,7 @@ In order to allow userspace-level control of CPU voltage, we need for steps of o
     mkdir spec2017
     sudo mount -t iso9660 -o ro,exec,loop ./cpu2017-1.1.8.iso ./cpu2017
     cd cpu2017
-    ./install # Enter path to target, referring its absolute path as <spec2017> below, e.g. ./spec2017
+    bash ./install.sh # Enter path to target, referring its absolute path as <spec2017> below, e.g. {pwd}/spec2017
     ```
 - Use default config `gcc`
     ```bash
@@ -54,7 +54,7 @@ In order to allow userspace-level control of CPU voltage, we need for steps of o
     Notice that if `<spc2017>/shrc` is not added to `~/.bashrc`, you need to `source` it every time after reboot.
 - Build `intrate`suite for this project
     ```
-    runcpu --config=gcc action=build intrate
+    runcpu --config=gcc --action=build intrate
     ```
 #### OpenSSL
 - `sudo apt install openssl` is not installed.

@@ -1,6 +1,10 @@
-spec2017/**/*
+spec2017
+cpu2017
 cpu2017-1.1.8.iso
-.git/*
-*/**/.*o
-local_docs/*
-voltage/src/*
+local_docs
+CMakeFiles
+CMakeCache.txt
+cmake_install.cmake
+**/build/Makefile
+librwvolt.so
+.vscode

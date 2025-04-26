@@ -1,2 +1,3 @@
-cd src
+cd rwvolt/build
+cmake .
 make
