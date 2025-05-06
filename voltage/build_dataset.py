@@ -3,11 +3,20 @@ from executable.rwvolt import RWVolt
 from subprocess import Popen, PIPE
 import multiprocessing as mp
 from typing import Optional, Union, Literal, List, Tuple, Dict
-import json, os, time
+import json, os, glob
 import numpy as np
 import tqdm
-from constants import DIR_EXECUTABLE, DIR_UTILS, DIR_LOG, DIR_DATASETS
+from constants import DIR_EXECUTABLE, DIR_UTILS, DIR_LOG, DIR_DATASETS, DIR_CONFIG
 
+def find_config(name):
+    name += ".json" if "." not in name else ""
+    path = ""
+    for i in glob.iglob(os.path.join(DIR_CONFIG, "**", name), recursive=True):
+        path = i
+    return path
+
+def all_configs():
+    return glob.glob(os.path.join(DIR_CONFIG, "**", "*.json"))
 
 class DatasetBuilder:
     _BACKGROUNDS: Dict[str, BackgroundProgramBase] = {
@@ -83,7 +92,12 @@ class DatasetBuilder:
         with open(path) as fp:
             return cls(**json.load(fp))
     
-    def build(self, save = True):
+    def _check_exist(self):
+        return os.path.exists(self.target_ + ".pkl")
+    
+    def build(self, save = True, replace = False):
+        if not replace and self._check_exist(): return np.load(self.target_)
+        
         data = np.zeros((self.size_, self.n_reads_), dtype=np.int16)
         fp_log = open(self.log_path_, "w")
         
@@ -120,6 +134,10 @@ class DatasetBuilder:
         if save: np.save(self.target_, data)
         return data
 
+def build_all(configs: List[str], save = True, replace = False):
+    for config in configs:
+        DatasetBuilder.from_config(config).build(save, replace)
+
 def parse_args():
     from argparse import ArgumentParser
     parser = ArgumentParser()
@@ -130,8 +148,7 @@ def parse_args():
 def main():
     args = parse_args()
     
-    config_path = os.path.join("config", args.config + ".json" if '.' not in args.config else "")
-    builder = DatasetBuilder.from_config(config_path)
+    builder = DatasetBuilder.from_config(find_config(args.config))
     data = builder.build()
     
     if args.test:
