@@ -8,3 +8,7 @@ cmake_install.cmake
 **/build/Makefile
 librwvolt.so
 .vscode
+__pycache__
+.log
+.temp
+datasets

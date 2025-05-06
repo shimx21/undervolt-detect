@@ -1,0 +1,15 @@
+{
+    "name": "disturbed_t1_spec",
+    "size": 1000,
+    "n_cores": 1,
+    "n_reads": 100000,
+    "interval": 0,
+    "backgrounds": {
+        "speccpu": {}
+    },
+    
+    "disturber": {
+        "periods": [0, 190, 10, 10],
+        "values": [200, 50, 320, 200]
+    }
+}

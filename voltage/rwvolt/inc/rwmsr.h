@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <sched.h>
 #include <string.h>
+#include <sys/mman.h>
 
 // MSR address and field range
 #define MSR_OC_MBOX 0x150 // Overclocking mailbox
@@ -27,10 +28,11 @@
 #define MAILBOX_SET_CORE_VOLT(value) (0x8000001100000000 ^ (((uint64_t)(value) & 0xfff) << 8))
 
 // utils
-#define MV_TO_MBOX(value) (int((value) * 1.024))
-#define STATUS_TO_V(value) (double((value)*1./8192))
+#define MV_TO_MBOX(value) ((int)((value) * 1.024))
+#define STATUS_TO_V(value) ((double)((value)*1./8192))
 
 // Extract specific bits from a 64-bit value
+#define EXTRACT_BITS(value, high, low)  ((value) >> (low)) & ((1ULL << ((high) - (low) + 1)) - 1)
 uint64_t extract_bits(uint64_t value, int high, int low);
 
 

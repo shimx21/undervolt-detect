@@ -13,7 +13,7 @@ except FileNotFoundError:
     raise FileNotFoundError(f"文件 '{file_name}' 未找到，请检查文件路径。")
 
 # 获取数据并进行处理
-data_points = data[0][20000:180000]  # 使用第0列的数据
+data_points = data[0] # 使用第0列的数据
 scaled_data = data_points / 8192  # 每个数据点除以 8192
 
 # 绘制折线图

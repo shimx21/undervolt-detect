@@ -1,6 +1,7 @@
 from typing import Optional, Literal, Union, List, Tuple
 import os
 import subprocess, time, multiprocessing
+from constants import DIR_EXECUTABLE
 
 class BackgroundProgramBase:
     
@@ -19,8 +20,8 @@ class BackgroundProgramBase:
         assert all(0 <= i < self.n_total_cores_ for i in cores), f"Cores id `{cores}` out of range"
         self.cores_ = cores
         
-        print(f"Total CPU cores: {self.n_total_cores_}")
-        print(f"Using CPU cores: {cores}")
+        # print(f"Total CPU cores: {self.n_total_cores_}")
+        # print(f"Using CPU cores: {cores}")
     
     def _taskset_cmd(self) -> List[str]:
         return ["taskset", "-c", ','.join(map(str, self.cores_))]
@@ -44,6 +45,9 @@ class BackgroundProgramBase:
         
         self.subprocess_ = None
     
+    def ready(self) -> bool:
+        return True
+    
     def run(
         self,
         # loop: Optional[int] = 1,
@@ -55,8 +59,8 @@ class BackgroundProgramBase:
         # TODO: maybe add a log file
         self.subprocess_ = subprocess.Popen(
             self._build_cmd(),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
     
     def stop(self):
@@ -69,6 +73,7 @@ class BackgroundProgramBase:
     
 class SpecCPUBackground(BackgroundProgramBase):
     __DEFAULT_EVAL = "500.perlbench_r"
+    __EXECUTABLE = "../spec2017/bin/runcpu"
     __INSTALLED_EVALS = [
         "500.perlbench_r",
         "502.gcc_r",
@@ -79,7 +84,8 @@ class SpecCPUBackground(BackgroundProgramBase):
         "531.deepsjeng_r",
         "541.leela_r",
         "548.exchange2_r",
-        "557.XZ_r"
+        "557.XZ_r",
+        "intrate"
     ]
     def _check_env(self) -> bool:
         return "SPEC" in os.environ
@@ -87,10 +93,10 @@ class SpecCPUBackground(BackgroundProgramBase):
     def __init__(
         self,
         method: Literal["all", "each"] = "all",
-        cores: Optional[int] = None,
-        config: Optional[str] = "gcc.cfg",
+        cores: Optional[List[int]] = None,
+        config: str = "gcc.cfg",
         targets: List[str] = [__DEFAULT_EVAL],
-        name: str = "spec_cpu_default",
+        name: str = "speccpu_default",
     ):
         super().__init__(
             method=method,
@@ -107,10 +113,15 @@ class SpecCPUBackground(BackgroundProgramBase):
             stderr=subprocess.DEVNULL,
         )
 
+    def ready(self):
+        # At least 5 seconds
+        # TODO: More accurate etimation using pipe
+        return time.time() - self.start_time_ > 5
+    
     def _runner_cmd(self, action:str = "run") -> List[str]:
         return [
-            "runcpu",
-            f"--config={self.config_}"
+            self.__EXECUTABLE,
+            f"--config={self.config_}",
             f"--action={action}",
             "--loose"
         ] + self.targets_
@@ -143,6 +154,10 @@ class OpenSSLBackground(BackgroundProgramBase):
             name=name
         )
     
+    def ready(self):
+        # At least 5 seconds
+        return time.time() - self.start_time_ > 5
+    
     def _runner_cmd(self) -> List[str]:
         # TODO: Add more options for OpenSSL
         return [
@@ -162,21 +177,35 @@ class DisturberBackground(BackgroundProgramBase):
     
     def __init__(
         self,
-        method: Literal["all", "each"] = "all",
-        cores: Optional[int] = None,
-        # (k(ms), v(mV)) set voltage offset v mV after k ms, v=None for orriginal voltage
-        sequence: List[Tuple[int, int]] = [], 
+        cores: Optional[List[int]] = None,
+        set_method: str = "offset",
+        # (k(ms), v(mV)) set voltage offset v mV after k ms, v=None for end
+        periods: List[int] = [],
+        values: List[int] = [], 
         name: str = "disturber_default",
+        executable: str = f"{DIR_EXECUTABLE}/setter.py"
     ):
         super().__init__(
-            method=method,
+            method="all",
             cores=cores,
             name=name
         )
-        self.original_voltage_ = self._get_original_voltage()
+        self.periods_ = periods
+        self.values_ = values
+        self.exec_ = executable
+        self.set_method_ = set_method
     
     def _runner_cmd(self) -> List[str]:
-        ...
+        return [
+            "python3",
+            self.exec_,
+            "--method",
+            self.set_method_,
+            "--periods",
+            *[str(_) for _ in self.periods_],
+            "--values",
+            *[str(_) for _ in self.values_],
+        ]
 
 class MultiBackground:
     def __init__(self, *backgrounds: BackgroundProgramBase):
@@ -190,8 +219,11 @@ class MultiBackground:
         for bg in self.backgrounds_:
             bg.stop()
     
+    def ready(self):
+        return all(bg.ready() for bg in self.backgrounds_)
+    
     def finished(self) -> bool:
-        return all(bg.finished() for bg in self.backgrounds_)
+        return any(bg.finished() for bg in self.backgrounds_)
 
 
 if __name__ == "__main__":
@@ -209,3 +241,9 @@ if __name__ == "__main__":
     openssl.stop()
     print("Finished:", openssl.finished())
     print("Example finished.")
+    
+    bg = DisturberBackground([0], periods=[0, 4000, 4000, 4000], values=[200, 320, 50, 200])
+    bg.run()
+    time.sleep(15)
+    bg.stop()
+    

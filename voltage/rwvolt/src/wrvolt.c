@@ -1,7 +1,7 @@
 #include "rwmsr.h"
 
 int offset_core_voltage(int core_id, int offset, int fdlog){
-    offset = (int)(offset * 1.024);
+    offset = MV_TO_MBOX(offset);
     uint64_t value = MAILBOX_OFFSET_CORE_VOLT(offset);
     FILE* flog = fdopen(dup(fdlog), "w");
     uint64_t oldvolt = extract_bits(
@@ -21,7 +21,7 @@ int offset_core_voltage(int core_id, int offset, int fdlog){
 }
 
 int set_core_voltage(int core_id, int target, int fdlog){
-    target = (int)(target * 1.024);
+    target = MV_TO_MBOX(target);
     uint64_t value = MAILBOX_SET_CORE_VOLT(target);
     FILE* flog = fdopen(dup(fdlog), "w");
     write_msr(core_id, MSR_OC_MBOX, value);
