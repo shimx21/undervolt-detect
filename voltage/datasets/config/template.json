@@ -1,5 +1,5 @@
 {
-    "name": "test_dataset",
+    "name": "test_template",
     "size": 100,
     "n_cores": 1,
     "n_reads": 100000,

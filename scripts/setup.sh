@@ -2,7 +2,7 @@
 
 # Define n_cores and target frequency
 TOTAL_CORES=7         # Max id of cores (7 for 8 cores)
-TARGET_FREQ="800000"  # (kHz)
+TARGET_FREQ="3000000"  # (kHz)
 
 # Check cpufreq-set
 if ! command -v cpufreq-set &> /dev/null; then

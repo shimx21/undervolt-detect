@@ -11,4 +11,5 @@ librwvolt.so
 __pycache__
 .log
 .temp
-datasets
+voltage/datasets/build
+voltage/model

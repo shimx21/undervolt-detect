@@ -13,6 +13,9 @@ class RWVolt:
         self.lib.bind_core.argtypes = [c_int]
         self.lib.bind_core.restype = None
         
+        self.lib.unbind.argtypes = []
+        self.lib.unbind.restype = None
+        
         self.lib.read_core_voltage.argtypes = [c_int, c_int, c_int, c_int, c_int]
         self.lib.read_core_voltage.restype = c_int
         
@@ -40,6 +43,9 @@ class RWVolt:
     
     def bind_core(self, core_id) -> None:
         self.lib.bind_core(core_id)
+    
+    def unbind(self) -> None:
+        self.lib.unbind()
 
     def offset_core_voltage(self, core_id: int, offset: int, fplog: TextIO = stderr) -> int:
         return self.lib.offset_core_voltage(core_id, offset, fplog.fileno())

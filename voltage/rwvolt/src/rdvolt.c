@@ -12,6 +12,20 @@ void bind_core(int core_id) {
     }
 }
 
+void unbind() {
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+
+    for (int i = 0; i < CPU_SETSIZE; i++) {
+        CPU_SET(i, &cpuset);
+    }
+
+    if (sched_setaffinity(0, sizeof(cpu_set_t), &cpuset) == -1) {
+        perror("Error setting CPU affinity");
+        exit(EXIT_FAILURE);
+    }
+}
+
 int read_core_voltage(int core_id, int read_num, int interval, int fdout, int fdlog){
     struct timespec st, et, rt;
     FILE* fout = fdopen(dup(fdout), "w");

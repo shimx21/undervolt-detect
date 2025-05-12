@@ -1,31 +1,30 @@
 from backgroud import BackgroundProgramBase, SpecCPUBackground, OpenSSLBackground, MultiBackground, DisturberBackground
 from executable.rwvolt import RWVolt
-from subprocess import Popen, PIPE
+from subprocess import Popen, PIPE, DEVNULL
 import multiprocessing as mp
 from typing import Optional, Union, Literal, List, Tuple, Dict
 import json, os, glob
 import numpy as np
 import tqdm
-from constants import DIR_EXECUTABLE, DIR_UTILS, DIR_LOG, DIR_DATASETS, DIR_CONFIG
+from constants import *
+from recorder import VoltRecorder
 
 def find_config(name):
     name += ".json" if "." not in name else ""
-    path = ""
-    for i in glob.iglob(os.path.join(DIR_CONFIG, "**", name), recursive=True):
-        path = i
-    return path
+    for path in glob.iglob(os.path.join(DIR_DATASETS_CONFIG, "**", name), recursive=True):
+        return path
 
 def all_configs():
-    return glob.glob(os.path.join(DIR_CONFIG, "**", "*.json"))
+    return glob.glob(os.path.join(DIR_DATASETS_CONFIG, "**", "*.json"))
 
 class DatasetBuilder:
     _BACKGROUNDS: Dict[str, BackgroundProgramBase] = {
         "speccpu": SpecCPUBackground,
         "openssl": OpenSSLBackground,
     }
-    _DATASET_DIR = DIR_DATASETS
-    _POS_LABEL = "disturbed"
-    _NEG_LABEL = "normal"
+    _DATASET_DIR = DIR_DATASETS_BUILD
+    _POS_LABEL = POS_LABEL
+    _NEG_LABEL = NEG_LABEL
     _N_MAX_CORES = mp.cpu_count() - 2
     _SETTER_CORE = _N_MAX_CORES
     _READER_CORE = _SETTER_CORE + 1
@@ -39,18 +38,22 @@ class DatasetBuilder:
         n_reads: int = 1000000,
         interval: int = 0,
         backgrounds: Dict[str, Dict] = {},
-        disturber: Optional[Dict[str, List[int]]] = None
+        disturber: Optional[Dict[str, List[int]]] = None,
+        on_finished: Literal["revert", "repeat", "termiate"] = "repeat"
+        # base: int = 200
     ):
         self.name_ = name
         self.size_ = size
         self.n_cores_ = n_cores
         self.n_reads_ = n_reads
         self.interval_ = interval
-        self.label_ = self._POS_LABEL if disturber is None else self._NEG_LABEL
+        self.label_ = self._POS_LABEL if disturber is not None else self._NEG_LABEL
+        self.on_finished_ = on_finished
         assert 1 <= n_cores <= self._N_MAX_CORES, ValueError(f"Number of cores should be between 1 and {self._N_MAX_CORES}")
         
         self.cores_ = list(range(0, self.n_cores_))
         self.rwvolt_ = RWVolt()
+        # self.base_ = base
         
         # Backgrounds
         self.backgrouds_ = MultiBackground(
@@ -65,18 +68,8 @@ class DatasetBuilder:
         self.disturber_ = DisturberBackground(cores=[self._N_MAX_CORES], **disturber) if disturber else None
         
         # Reader
-        self.reader_cmd_ = [
-            "taskset",
-            "-c",
-            str(self._READER_CORE),
-            "python3",
-            f"{DIR_EXECUTABLE}/reader.py",
-            "--n_reads",
-            str(self.n_reads_),
-            "--interval",
-            str(self.interval_)
-        ]
-        
+        self.recorder_ = VoltRecorder(self._READER_CORE)
+
         # File paths
         self.target_ = os.path.join(self._DATASET_DIR, self.label_, self.name_)
         self.log_path_ = os.path.join(self._LOG_DIR, self.name_)
@@ -93,10 +86,14 @@ class DatasetBuilder:
             return cls(**json.load(fp))
     
     def _check_exist(self):
-        return os.path.exists(self.target_ + ".pkl")
+        return os.path.exists(self.target_ + ".npy")
     
     def build(self, save = True, replace = False):
-        if not replace and self._check_exist(): return np.load(self.target_)
+        # If exist and not replace, skip
+        if not replace and self._check_exist():
+            return np.load(self.target_ + ".npy"), self.label_
+        # # Set base voltage
+        # self.rwvolt_.offset_core_voltage(0, self.base_, fplog=DEVNULL)
         
         data = np.zeros((self.size_, self.n_reads_), dtype=np.int16)
         fp_log = open(self.log_path_, "w")
@@ -112,36 +109,47 @@ class DatasetBuilder:
                 self.disturber_.run()
                 while not self.disturber_.ready(): ...
             
-            proc = Popen(
-                self.reader_cmd_,
-                stdout=PIPE,
-                stderr=fp_log
-            )
+            data[i] = self.recorder_.record_once(self.n_reads_, self.interval_, fp_log)
             
-            cnt = 0
-            while proc.poll() is None:
-                line = proc.stdout.readline()
-                if line:
-                    data[i][cnt] = int(line)
-                    cnt += 1
-            
-            if self.backgrouds_.finished(): break
-            while not self.disturber_.finished():...
+            if self.backgrouds_.finished():
+                # On finish
+                if self.on_finished_ == "repeat":
+                    self.backgrouds_.run()
+                elif self.on_finished_ == "revert":
+                    self.backgrouds_.run()
+                    i -= 1
+                elif self.on_finished_ == "terminate":
+                    break
+                
+            if self.disturber_ is not None:
+                while not self.disturber_.finished():...
             
         self.backgrouds_.stop()
         fp_log.close()
         
         if save: np.save(self.target_, data)
-        return data
+        return data, self.label_
 
 def build_all(configs: List[str], save = True, replace = False):
+    datasets = []
+    labels = []
     for config in configs:
-        DatasetBuilder.from_config(config).build(save, replace)
+        cfg_pth = find_config(config)
+        if cfg_pth is None:
+            print(f"Config `{config}` not found, skipped...")
+            continue
+        print(f"Building config `{config}`...")
+        data, label = DatasetBuilder.from_config(cfg_pth).build(save, replace)
+        datasets.append(data)
+        labels.append(np.ones(data.shape[0], dtype=np.bool_) * (label == "disturbed"))
+    
+    RWVolt().unbind()
+    return np.concatenate(datasets, axis=0), np.concatenate(labels, axis=0)
 
 def parse_args():
     from argparse import ArgumentParser
     parser = ArgumentParser()
-    parser.add_argument("-c", "--config", type=str, default="default")
+    parser.add_argument("-c", "--config", type=str, default="template")
     parser.add_argument("-t", "--test", action="store_true", default=False)
     return parser.parse_args()
 
