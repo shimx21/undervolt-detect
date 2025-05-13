@@ -1,23 +1,23 @@
 import keras
-from keras import layers, models
+from keras.models import Sequential
+from keras.layers import Conv1D, MaxPooling1D, GlobalMaxPooling1D, Dense, Dropout
 import numpy as np
 
 
-def get_model(n_reads):
-    return models.Sequential([
-        # 输入形状 (m, 1)
-        layers.Conv1D(filters=32, kernel_size=5, activation='relu', 
-            input_shape=(n_reads, 1), padding='same'),
-        layers.MaxPooling1D(pool_size=2),
+def get_model(m):
+    return Sequential([
+        Conv1D(64, 7, activation='relu', input_shape=(m, 1)),
+        MaxPooling1D(4),  # 快速压缩时间维度
         
-        layers.Conv1D(filters=64, kernel_size=3, activation='relu', padding='same'),
-        layers.MaxPooling1D(pool_size=2),
+        Conv1D(128, 5, activation='relu', padding='same'),
+        MaxPooling1D(2),
         
-        layers.GlobalAveragePooling1D(),  # 替代Flatten，更适应时序数据
+        Conv1D(256, 3, activation='relu', padding='same'),
+        GlobalMaxPooling1D(),  # 替代GlobalAverage
         
-        layers.Dense(32, activation='relu'),
-        layers.Dropout(0.3),
-        layers.Dense(1, activation='sigmoid')
+        Dense(128, activation='relu'),
+        Dropout(0.5),
+        Dense(1, activation='sigmoid')
     ])
 
 def augment_ts(sequence):

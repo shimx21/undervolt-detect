@@ -1,5 +1,5 @@
 {
-    "name": "normal_openssl",
+    "name": "normal_multi",
     "size": 1000,
     "n_cores": 4,
     "n_reads": 100000,

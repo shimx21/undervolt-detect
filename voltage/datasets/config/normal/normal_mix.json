@@ -1,5 +1,5 @@
 {
-    "name": "normal_openssl",
+    "name": "normal_mix",
     "size": 1000,
     "n_cores": 1,
     "n_reads": 100000,

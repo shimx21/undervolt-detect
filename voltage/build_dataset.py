@@ -30,6 +30,9 @@ class DatasetBuilder:
     _READER_CORE = _SETTER_CORE + 1
     _LOG_DIR = DIR_LOG
     
+    def _reset_volt(self):
+        self.rwvolt_.offset_core_voltage(0, self.base_, self.fp_log_)
+    
     def __init__(
         self,
         name: str = "default",
@@ -39,8 +42,8 @@ class DatasetBuilder:
         interval: int = 0,
         backgrounds: Dict[str, Dict] = {},
         disturber: Optional[Dict[str, List[int]]] = None,
-        on_finished: Literal["revert", "repeat", "termiate"] = "repeat"
-        # base: int = 200
+        on_finished: Literal["revert", "repeat", "termiate"] = "repeat",
+        base: int = 400
     ):
         self.name_ = name
         self.size_ = size
@@ -53,7 +56,7 @@ class DatasetBuilder:
         
         self.cores_ = list(range(0, self.n_cores_))
         self.rwvolt_ = RWVolt()
-        # self.base_ = base
+        self.base_ = base
         
         # Backgrounds
         self.backgrouds_ = MultiBackground(
@@ -73,6 +76,7 @@ class DatasetBuilder:
         # File paths
         self.target_ = os.path.join(self._DATASET_DIR, self.label_, self.name_)
         self.log_path_ = os.path.join(self._LOG_DIR, self.name_)
+        self.fp_log_ = None
         
         os.makedirs(os.path.join(self._DATASET_DIR, self.label_), exist_ok=True)
         os.makedirs(self._LOG_DIR, exist_ok=True)
@@ -92,11 +96,13 @@ class DatasetBuilder:
         # If exist and not replace, skip
         if not replace and self._check_exist():
             return np.load(self.target_ + ".npy"), self.label_
-        # # Set base voltage
-        # self.rwvolt_.offset_core_voltage(0, self.base_, fplog=DEVNULL)
         
         data = np.zeros((self.size_, self.n_reads_), dtype=np.int16)
-        fp_log = open(self.log_path_, "w")
+        
+        self.fp_log_ = open(self.log_path_, "w")
+
+        # Set base voltage
+        self._reset_volt()
         
         # Start backgrounds
         self.backgrouds_.run()
@@ -109,14 +115,18 @@ class DatasetBuilder:
                 self.disturber_.run()
                 while not self.disturber_.ready(): ...
             
-            data[i] = self.recorder_.record_once(self.n_reads_, self.interval_, fp_log)
+            data[i] = self.recorder_.record_once(self.n_reads_, self.interval_, self.fp_log_)
             
             if self.backgrouds_.finished():
                 # On finish
                 if self.on_finished_ == "repeat":
-                    self.backgrouds_.run()
+                    # self.backgrouds_.stop()
+                    for b in self.backgrouds_.backgrounds_:
+                        if b.finished(): b.run()
                 elif self.on_finished_ == "revert":
-                    self.backgrouds_.run()
+                    # self.backgrouds_.stop()
+                    for b in self.backgrouds_.backgrounds_:
+                        if b.finished(): b.run()
                     i -= 1
                 elif self.on_finished_ == "terminate":
                     break
@@ -125,7 +135,8 @@ class DatasetBuilder:
                 while not self.disturber_.finished():...
             
         self.backgrouds_.stop()
-        fp_log.close()
+        self._reset_volt()
+        self.fp_log_.close
         
         if save: np.save(self.target_, data)
         return data, self.label_
@@ -150,6 +161,7 @@ def parse_args():
     from argparse import ArgumentParser
     parser = ArgumentParser()
     parser.add_argument("-c", "--config", type=str, default="template")
+    parser.add_argument("-r", "--replace", action="store_true", default=False)
     parser.add_argument("-t", "--test", action="store_true", default=False)
     return parser.parse_args()
 
@@ -157,7 +169,7 @@ def main():
     args = parse_args()
     
     builder = DatasetBuilder.from_config(find_config(args.config))
-    data = builder.build()
+    data = builder.build(replace=args.replace)
     
     if args.test:
         with open(".temp/test_dataset", "w") as fp:

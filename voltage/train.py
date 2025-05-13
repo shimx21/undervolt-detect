@@ -1,6 +1,5 @@
 import numpy as np
 from build_dataset import build_all
-from torch.nn import Conv1d
 from constants import *
 from model import get_model, augment_ts
 import keras
@@ -25,30 +24,24 @@ def parse_args():
     return parser.parse_args()
 
 def main():
+    from sklearn.preprocessing import RobustScaler
+
+    scaler = RobustScaler()
     # Load data
     data, labels = build_all(USED_CONFIGS)
-    data = data[:,:,np.newaxis]
-    print(labels.dtype)
     labels = labels.astype(np.int8)
+    
     seq_len = data.shape[1]
     
+    
     X_train, X_test, y_train, y_test = train_test_split(data, labels, test_size=0.2, stratify=labels, random_state=42)
-    # train_datagen = keras.preprocessing.sequence.TimeseriesGenerator(
-    #     X_train, y_train,
-    #     length=seq_len,
-    #     batch_size=32,
-    #     preprocessing_function=augment_ts
-    # )
-    # test_datagen = keras.preprocessing.sequence.TimeseriesGenerator(
-    #     X_test, y_test,
-    #     length=seq_len,
-    #     batch_size=32,
-    #     preprocessing_function=augment_ts
-    # )
+    
+    X_train = scaler.fit_transform(X_train,y_train)[:,:,np.newaxis]
+    X_test = scaler.transform(X_test)[:,:,np.newaxis]
 
     model = get_model(data.shape[1])
 
-    model.compile(optimizer='adam',
+    model.compile(optimizer='Nadam',
                 loss='binary_crossentropy',
                 metrics=['accuracy', 
                 keras.metrics.Precision(),
@@ -69,9 +62,9 @@ def main():
         class_weight={i : class_weights[i] for i in classes},
         callbacks=[keras.callbacks.EarlyStopping(
             monitor='val_recall',
-            patience=10,
+            patience=20,
             mode='max',
-            restore_best_weights=True
+            min_delta=0.001
         )]
     )
     
@@ -81,7 +74,7 @@ def main():
     from sklearn.metrics import classification_report
     print(classification_report(y_test, y_pred))
     
-    model.save("model/.temp.h5")
+    model.save("model/.temp.keras")
 
 if __name__ == "__main__":
     main()
