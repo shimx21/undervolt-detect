@@ -12,4 +12,4 @@ __pycache__
 .log
 .temp
 voltage/datasets/build
-voltage/model
+voltage/models

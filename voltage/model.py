@@ -1,24 +1,31 @@
 import keras
+import tensorflow as tf
 from keras.models import Sequential
-from keras.layers import Conv1D, MaxPooling1D, GlobalMaxPooling1D, Dense, Dropout
+from keras.layers import Conv1D, DepthwiseConv1D, AveragePooling1D, Dense, GlobalAveragePooling1D
 import numpy as np
 
+import tensorflow_model_optimization as tfmot
 
-def get_model(m):
-    return Sequential([
-        Conv1D(64, 7, activation='relu', input_shape=(m, 1)),
-        MaxPooling1D(4),  # 快速压缩时间维度
+def get_model(X_train, quantize: bool = True):
+    model = Sequential([
+        Conv1D(16, 5, activation='relu', padding='same', input_shape=(X_train.shape[1],1)),
+        DepthwiseConv1D(3, activation='relu'),
+        AveragePooling1D(4),
         
-        Conv1D(128, 5, activation='relu', padding='same'),
-        MaxPooling1D(2),
+        Conv1D(32, 3, activation='relu', padding='same'),
+        GlobalAveragePooling1D(),
         
-        Conv1D(256, 3, activation='relu', padding='same'),
-        GlobalMaxPooling1D(),  # 替代GlobalAverage
-        
-        Dense(128, activation='relu'),
-        Dropout(0.5),
-        Dense(1, activation='sigmoid')
+        Dense(1, activation='sigmoid')  # 无偏置项
     ])
+    if not quantize: return model
+    
+    quant_model = tfmot.quantization.keras.quantize_model(model)
+
+    converter = tf.lite.TFLiteConverter.from_keras_model(quant_model)
+    converter.optimizations = [tf.lite.Optimize.DEFAULT]
+    converter.representative_dataset = lambda: [[X_train[:1000]]]  # 校准数据
+    return converter.convert()
+    
 
 def augment_ts(sequence):
     if np.random.rand() > 0.5:
