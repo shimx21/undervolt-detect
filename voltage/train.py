@@ -1,5 +1,5 @@
 import numpy as np
-from build_dataset import DatasetBuilder
+from build_dataset import DatasetBuilder, DatasetGroup
 from constants import *
 from model import get_model
 import datetime, os, json, pickle, random
@@ -10,20 +10,11 @@ from sklearn.model_selection import train_test_split
 from sklearn.utils.class_weight import compute_class_weight
 from utils.tools import set_random_seed
 
-
-USED_CONFIGS = [
-    "normal_spec",
-    "normal_openssl",
-    "normal_rest",
-    "normal_multi",
-    "normal_mix",
-    "disturbed_t1_spec"
-]
-
 def parse_args():
     from argparse import ArgumentParser
     parser = ArgumentParser()
     parser.add_argument("-n", "--name", type=str, default=str(datetime.datetime.now().strftime("%Y%m%d%H%M%S")))
+    parser.add_argument("-g", "--dataset_group", type=str, default="default")
     parser.add_argument("-r", "--seed", type=int, default=42)
     parser.add_argument("-R", "--retrain", action="store_true", default=False, help="Retrain model even if the one with same name exists.")
     
@@ -38,8 +29,7 @@ def parse_args():
     parser.add_argument("-s", "--scale_method", type=str, choices=["robust", "standard"], default="robust")
     
     # Additional
-    # parser.add_argument("--augment_data", action="store_true", default=False)
-    parser.add_argument("--quantize_model", action="store_true", default=False)
+    # parser.add_argument("--quantize_model", action="store_true", default=False)
     parser.add_argument("--threshold_opt", action="store_true", default=False, help="Threshold optimizaion")
     parser.add_argument("-t", "--target_prec", type=float, default=0.9995)
     
@@ -70,11 +60,13 @@ def threshold_opt_prec(y_val, y_val_pred, target_prec):
 
     return optimal_threshold
 
-def load_data(configs, scaler_method):
-    data, labels = DatasetBuilder.build_all(configs)
+def load_data(config_name, scaler_method):
+    target_dir = os.path.join(DatasetGroup._TARGET_DIR, config_name)
+    data, labels = DatasetGroup.load_from(target_dir)
+    data = np.ascontiguousarray(data, np.float32)
     labels = labels.astype(np.int8)
     
-    X_train, X_test, y_train, y_test = train_test_split(data, labels, test_size=0.2, stratify=labels, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(data, labels, test_size=0.2, stratify=labels)
     if scaler_method:
         X_train, X_test, scaler = scale_input(X_train, X_test, y_train, scaler_method)
     else:
@@ -141,7 +133,7 @@ def main():
     save_dir = os.path.join(DIR_MODELS, args.name)
     
     print("Loading data...")
-    X_train, X_test, y_train, y_test, scaler = load_data(USED_CONFIGS, args.scale_method)
+    X_train, X_test, y_train, y_test, scaler = load_data(args.dataset_group, args.scale_method)
     
     print("Finding model...")
     _need_saving = True
@@ -153,7 +145,7 @@ def main():
     else:
         os.makedirs(save_dir, exist_ok=True)
         print("Training model...")
-        model = get_model(X_train, args.quantize_model)
+        model = get_model(X_train)
         train_model(model, X_train, y_train, args)
         
         print("Calculating threshold...")

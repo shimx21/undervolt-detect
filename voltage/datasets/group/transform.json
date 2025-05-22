@@ -1,0 +1,17 @@
+{
+    "name": "transform",
+    "configs": [
+        "normal_spec",
+        "normal_openssl",
+        "normal_rest",
+        "normal_multi",
+        "normal_mix",
+        "disturbed_t1_spec"
+    ],
+    "augment": {
+        "type": "rroll",
+        "n_repeat": 1,
+        "keepsrc": false,
+        "name": "rroll"
+    }
+}
