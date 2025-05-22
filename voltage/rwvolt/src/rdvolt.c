@@ -50,7 +50,9 @@ int read_core_voltage(int core_id, int read_num, int interval, int fdout, int fd
     fprintf(flog, "Monitoring voltage on core %d.\n", core_id);
     uint64_t value;
     clock_gettime(CLOCK_REALTIME, &st);
-    for (int i = 0; i < read_num; i++)
+
+    int is_finite = read_num >= 0;
+    for (int i = 0; !is_finite || i < read_num; i+=is_finite)
     {
         // do clock_gettime(CLOCK_REALTIME, &rt);
         // while ((rt.tv_sec - st.tv_sec)*1000 + (rt.tv_nsec - st.tv_nsec) < i * interval);

@@ -9,9 +9,8 @@ def parse_args():
     return parser.parse_args()
 
 def main():
-    rwvolt = RWVolt()
     args = parse_args()
-    rwvolt.read_core_voltage(args.core, args.n_reads, args.interval)
+    RWVolt.read_core_voltage(args.core, args.n_reads, args.interval)
 
 # subprocess only
 main()

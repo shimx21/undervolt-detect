@@ -1,13 +1,14 @@
 import numpy as np
-from build_dataset import build_all
+from build_dataset import DatasetBuilder
 from constants import *
-from model import get_model, augment_ts
+from model import get_model
 import datetime, os, json, pickle, random
 import tensorflow as tf
 
 import keras
 from sklearn.model_selection import train_test_split
 from sklearn.utils.class_weight import compute_class_weight
+from utils.tools import set_random_seed
 
 
 USED_CONFIGS = [
@@ -44,11 +45,6 @@ def parse_args():
     
     return parser.parse_args()
 
-def set_random_seed(seed):
-    random.seed(seed)
-    np.random.seed(seed)
-    tf.random.set_seed(seed)
-
 def scale_input(X_train, X_test, y_train, method = "robust"):
     if method == "robust":
         from sklearn.preprocessing import RobustScaler
@@ -75,7 +71,7 @@ def threshold_opt_prec(y_val, y_val_pred, target_prec):
     return optimal_threshold
 
 def load_data(configs, scaler_method):
-    data, labels = build_all(configs)
+    data, labels = DatasetBuilder.build_all(configs)
     labels = labels.astype(np.int8)
     
     X_train, X_test, y_train, y_test = train_test_split(data, labels, test_size=0.2, stratify=labels, random_state=42)

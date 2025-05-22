@@ -1,21 +1,20 @@
 from backgroud import BackgroundProgramBase, SpecCPUBackground, OpenSSLBackground, MultiBackground, DisturberBackground
-from executable.rwvolt import RWVolt
+from rwvolt import RWVolt
 from subprocess import Popen, PIPE, DEVNULL
 import multiprocessing as mp
 from typing import Optional, Union, Literal, List, Tuple, Dict
 import json, os, glob
 import numpy as np
-import tqdm
+import tqdm, traceback
 from constants import *
 from recorder import VoltRecorder
+from utils.augment import AugmentBase
+from collections import OrderedDict
 
-def find_config(name):
+def find_config(name, dir: str = DIR_DATASETS_CONFIG):
     name += ".json" if "." not in name else ""
-    for path in glob.iglob(os.path.join(DIR_DATASETS_CONFIG, "**", name), recursive=True):
+    for path in glob.iglob(os.path.join(dir, "**", name), recursive=True):
         return path
-
-def all_configs():
-    return glob.glob(os.path.join(DIR_DATASETS_CONFIG, "**", "*.json"))
 
 class DatasetBuilder:
     _BACKGROUNDS: Dict[str, BackgroundProgramBase] = {
@@ -31,7 +30,7 @@ class DatasetBuilder:
     _LOG_DIR = DIR_LOG
     
     def _reset_volt(self):
-        self.rwvolt_.offset_core_voltage(0, self.base_, self.fp_log_)
+        RWVolt.offset_core_voltage(0, self.base_, self.fp_log_)
     
     def __init__(
         self,
@@ -55,7 +54,6 @@ class DatasetBuilder:
         assert 1 <= n_cores <= self._N_MAX_CORES, ValueError(f"Number of cores should be between 1 and {self._N_MAX_CORES}")
         
         self.cores_ = list(range(0, self.n_cores_))
-        self.rwvolt_ = RWVolt()
         self.base_ = base
         
         # Backgrounds
@@ -71,7 +69,7 @@ class DatasetBuilder:
         self.disturber_ = DisturberBackground(cores=[self._N_MAX_CORES], **disturber) if disturber else None
         
         # Reader
-        self.recorder_ = VoltRecorder(self._READER_CORE)
+        self.recorder_ = VoltRecorder(self._SETTER_CORE, self._READER_CORE)
 
         # File paths
         self.target_ = os.path.join(self._DATASET_DIR, self.label_, self.name_)
@@ -81,7 +79,7 @@ class DatasetBuilder:
         os.makedirs(os.path.join(self._DATASET_DIR, self.label_), exist_ok=True)
         os.makedirs(self._LOG_DIR, exist_ok=True)
         # Bind main programme on last core
-        self.rwvolt_.bind_core(self._SETTER_CORE)
+        os.sched_setaffinity(0, {self._SETTER_CORE})
         
     
     @classmethod
@@ -103,64 +101,114 @@ class DatasetBuilder:
 
         # Set base voltage
         self._reset_volt()
-        
-        # Start backgrounds
-        self.backgrouds_.run()
-        
-        # Wait until all backgrounds are ready
-        while not self.backgrouds_.ready(): ...
-        
-        for i in tqdm.tqdm(range(self.size_)):
-            if self.disturber_:
-                self.disturber_.run()
-                while not self.disturber_.ready(): ...
+        try:
+            finished = False
+            # Start backgrounds
+            self.backgrouds_.run()
             
-            data[i] = self.recorder_.record_once(self.n_reads_, self.interval_, self.fp_log_)
+            # Wait until all backgrounds are ready
+            while not self.backgrouds_.ready(): ...
             
-            if self.backgrouds_.finished():
-                # On finish
-                if self.on_finished_ == "repeat":
-                    # self.backgrouds_.stop()
-                    for b in self.backgrouds_.backgrounds_:
-                        if b.finished(): b.run()
-                elif self.on_finished_ == "revert":
-                    # self.backgrouds_.stop()
-                    for b in self.backgrouds_.backgrounds_:
-                        if b.finished(): b.run()
-                    i -= 1
-                elif self.on_finished_ == "terminate":
-                    break
+            for i in tqdm.tqdm(range(self.size_)):
+                if self.disturber_:
+                    self.disturber_.run()
+                    while not self.disturber_.ready(): ...
                 
-            if self.disturber_ is not None:
-                while not self.disturber_.finished():...
-            
-        self.backgrouds_.stop()
+                data[i] = self.recorder_.record_once(self.n_reads_, self.interval_, self.fp_log_)
+                
+                if self.backgrouds_.finished():
+                    # On finish
+                    if self.on_finished_ == "repeat":
+                        # self.backgrouds_.stop()
+                        for b in self.backgrouds_.backgrounds_:
+                            if b.finished(): b.run()
+                    elif self.on_finished_ == "revert":
+                        # self.backgrouds_.stop()
+                        for b in self.backgrouds_.backgrounds_:
+                            if b.finished(): b.run()
+                        i -= 1
+                    elif self.on_finished_ == "terminate":
+                        break
+                    
+                if self.disturber_ is not None:
+                    while not self.disturber_.finished():...
+                
+            self.backgrouds_.stop()
+            finished = True
+        except Exception as e:
+            self.fp_log_.write(traceback.format_exc())
+        finally:
+            self.backgrouds_.stop()
+            if self.disturber_: self.disturber_.stop()
         self._reset_volt()
-        self.fp_log_.close
+        self.fp_log_.close()
         
-        if save: np.save(self.target_, data)
+        if save and finished: np.save(self.target_, data)
         return data, self.label_
 
-def build_all(configs: List[str], save = True, replace = False):
-    datasets = []
-    labels = []
-    for config in configs:
-        cfg_pth = find_config(config)
-        if cfg_pth is None:
-            print(f"Config `{config}` not found, skipped...")
-            continue
-        print(f"Building config `{config}`...")
-        data, label = DatasetBuilder.from_config(cfg_pth).build(save, replace)
-        datasets.append(data)
-        labels.append(np.ones(data.shape[0], dtype=np.bool_) * (label == "disturbed"))
+    @classmethod
+    def build_all(cls, configs: List[str], save = True, replace = False):
+        datasets = []
+        labels = []
+        for config in configs:
+            cfg_pth = find_config(config)
+            if cfg_pth is None:
+                print(f"Config `{config}` not found, skipped...")
+                continue
+            print(f"Building config `{config}`...")
+            data, label = cls.from_config(cfg_pth).build(save, replace)
+            datasets.append(data)
+            labels.append(np.ones(data.shape[0], dtype=np.bool_) * (label == cls._POS_LABEL))
+        
+        RWVolt.unbind()
+        return np.concatenate(datasets, axis=0), np.concatenate(labels, axis=0)
+
+class DatasetGroup:
+    _TARGET_DIR = os.path.join(DIR_DATASETS_BUILD, "group")
+    _NAME_DATA = "data"
+    _NAME_LABELS = "labels"
+    def __init__(
+        self,
+        name: str,
+        configs: List[str],
+        augment: Optional[AugmentBase]
+    ):
+        self.name_ = name
+        self.configs_ = configs
+        self.augment_ = augment
+        self.target_dir_ = os.path.join(self._TARGET_DIR, name)
+        os.makedirs(self.target_dir_, exist_ok=True)
+        self.target_data_ = os.path.join(self.target_dir_, self._NAME_DATA)
+        self.target_labels_ = os.path.join(self.target_dir_, self._NAME_LABELS)
     
-    RWVolt().unbind()
-    return np.concatenate(datasets, axis=0), np.concatenate(labels, axis=0)
+    def build(self, save = True, replace = False):
+        X, y = DatasetBuilder.build_all(self.configs_, save, replace)
+        X, y = self.augment_.apply(X, y)
+        if save:
+            np.save(self.target_data_  , X)
+            np.save(self.target_labels_, y)
+        return X, y
+    
+    @classmethod
+    def from_config(cls, path: str):
+        with open(path) as fp:
+            config: OrderedDict = json.load(fp, object_pairs_hook=OrderedDict)
+        aug_config = config.pop("augment", None)
+        augment = aug_config and AugmentBase.from_config(aug_config)
+        return cls(**config, augment=augment)
+    
+    @classmethod
+    def load_from(cls, dir):
+        data_pth = os.path.join(dir, cls._NAME_DATA + ".npy")
+        label_pth = os.path.join(dir, cls._NAME_LABELS + ".npy")
+        return np.load(data_pth), np.load(label_pth)
 
 def parse_args():
     from argparse import ArgumentParser
     parser = ArgumentParser()
+    parser.add_argument("-s", "--seed", type=int, default=42)
     parser.add_argument("-c", "--config", type=str, default="template")
+    parser.add_argument("-g", "--group", action="store_true", default=False)
     parser.add_argument("-r", "--replace", action="store_true", default=False)
     parser.add_argument("-t", "--test", action="store_true", default=False)
     return parser.parse_args()
@@ -168,7 +216,10 @@ def parse_args():
 def main():
     args = parse_args()
     
-    builder = DatasetBuilder.from_config(find_config(args.config))
+    if args.group:
+        builder = DatasetGroup.from_config(find_config(args.config, DIR_DATASETS_GROUP))
+    else:
+        builder = DatasetBuilder.from_config(find_config(args.config))
     data = builder.build(replace=args.replace)
     
     if args.test:
@@ -176,6 +227,16 @@ def main():
             fp.write("\n".join([str(t) for t in data[0]]))
         p = Popen(["python3", f"{DIR_UTILS}/plot_voltage.py", ".temp/test_dataset", ".temp/temp.png"])
         p.wait()
+    
+    # command line
+    while 1:
+        cmd = input(">>> ")
+        try:
+            exec(cmd)
+        except EOFError:
+            return
+        except Exception as e:
+            traceback.print_exc()
 
 if __name__ == "__main__":
     main()

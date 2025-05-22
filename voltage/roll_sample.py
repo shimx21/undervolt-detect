@@ -1,5 +1,5 @@
 import numpy as np
-from build_dataset import build_all
+from build_dataset import DatasetBuilder, DatasetGroup
 from constants import *
 from utils.plot_voltage import plot_voltage
 
@@ -14,7 +14,7 @@ USED_CONFIGS = [
 ]
 
 if __name__ == "__main__":
-    data, labels = build_all(USED_CONFIGS, replace=True)
+    data, labels = DatasetGroup.load_from("datasets/group/default")
     n_sets = len(USED_CONFIGS)
     n_single = data.shape[0] // n_sets
     
