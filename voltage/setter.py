@@ -10,10 +10,11 @@ def parse_args():
     return parser.parse_args()
 
 def seq_setter(func, cores, periods, values, output = sys.stderr):
+    """ms-level setter"""
     st = time.time()
     print(periods, values)
     for p, v in zip(periods, values):
-        while 1000*(time.time() - st) < p: ...
+        time.sleep(1e-3 * p)
         for core in cores: func(core, v, output)
         st = time.time()
 
@@ -25,4 +26,5 @@ def main():
     seq_setter(func, **config)
 
 # subprocess only
-main()
+if __name__ == "__main__":
+    main()
