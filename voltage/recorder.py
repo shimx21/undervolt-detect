@@ -79,7 +79,7 @@ class VoltRecorder:
                 data = self._read_pipe(reader, n_reads)
                 dealer(data)
         except Exception as e:
-            import traceback; traceback.print_exc();
+            import traceback; traceback.print_exc(file=flog);
         finally:
             proc.kill()
         

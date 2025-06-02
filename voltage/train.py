@@ -15,6 +15,7 @@ def parse_args():
     parser = ArgumentParser()
     parser.add_argument("-n", "--name", type=str, default=str(datetime.datetime.now().strftime("%Y%m%d%H%M%S")))
     parser.add_argument("-g", "--dataset_group", type=str, default="default")
+    parser.add_argument("-m", "--model_id", type=int, default=0)
     parser.add_argument("-r", "--seed", type=int, default=42)
     parser.add_argument("-R", "--retrain", action="store_true", default=False, help="Retrain model even if the one with same name exists.")
     
@@ -27,6 +28,7 @@ def parse_args():
     
     # Train setting
     parser.add_argument("-s", "--scale_method", type=str, choices=["robust", "standard"], default="robust")
+    parser.add_argument("-f", "--fft", type=int, default=None)
     
     # Additional
     # parser.add_argument("--quantize_model", action="store_true", default=False)
@@ -60,7 +62,7 @@ def threshold_opt_prec(y_val, y_val_pred, target_prec):
 
     return optimal_threshold
 
-def load_data(config_name, scaler_method):
+def load_data(config_name, scaler_method, n_fft: int = None):
     target_dir = os.path.join(DatasetGroup._TARGET_DIR, config_name)
     data, labels = DatasetGroup.load_from(target_dir)
     data = np.ascontiguousarray(data, np.float32)
@@ -73,6 +75,9 @@ def load_data(config_name, scaler_method):
         scaler = None
     X_train = X_train[:,:,np.newaxis]
     X_test = X_test[:,:,np.newaxis]
+    if n_fft:
+        X_train = np.fft.fft(X_train, n_fft, axis=1)
+        X_test  = np.fft.fft(X_test, n_fft, axis=1)
     return X_train, X_test, y_train, y_test, scaler
 
 def train_model(model, X_train, y_train, args):
@@ -103,7 +108,7 @@ def train_model(model, X_train, y_train, args):
             min_delta=0.001
         )]
     )
-    return model
+    return history
 
 def test_model(model, X_test, y_test, args):
     from sklearn.metrics import classification_report
@@ -120,12 +125,14 @@ def load_model(load_dir):
         scaler = pickle.load(fp)
     return model, scaler, args
 
-def save_model(model, scaler, args, save_dir):
+def save_model(model, scaler, args, history, save_dir):
     model.save(os.path.join(save_dir, "model.keras"))
     with open(os.path.join(save_dir, "config.json"), "w") as fp:
         json.dump(args.__dict__, fp, indent=4)
     with open(os.path.join(save_dir, "scaler.pkl"), "wb") as fp:
         pickle.dump(scaler, fp)
+    with open(os.path.join(save_dir, "history.pkl"), "wb") as fp:
+        pickle.dump(history, fp)
 
 def main():
     args = parse_args()
@@ -133,7 +140,7 @@ def main():
     save_dir = os.path.join(DIR_MODELS, args.name)
     
     print("Loading data...")
-    X_train, X_test, y_train, y_test, scaler = load_data(args.dataset_group, args.scale_method)
+    X_train, X_test, y_train, y_test, scaler = load_data(args.dataset_group, args.scale_method, args.fft)
     
     print("Finding model...")
     _need_saving = True
@@ -142,11 +149,12 @@ def main():
         model, scaler, args = load_model(save_dir)
         args = argparse.Namespace(**args)
         _need_saving = False
+        print(model.summary())
     else:
-        os.makedirs(save_dir, exist_ok=True)
         print("Training model...")
-        model = get_model(X_train)
-        train_model(model, X_train, y_train, args)
+        model = get_model(X_train, id=args.model_id)
+        history = train_model(model, X_train, y_train, args)
+        os.makedirs(save_dir, exist_ok=True)
         
         print("Calculating threshold...")
         args.threshold = threshold_opt_prec(y_train, model.predict(X_train), args.target_prec) if args.threshold_opt else 0.5
@@ -157,7 +165,7 @@ def main():
     
     if _need_saving:
         print(f"Saving model to {save_dir}...")
-        save_model(model, scaler, args, save_dir)
+        save_model(model, scaler, args, history, save_dir)
 
 if __name__ == "__main__":
     main()

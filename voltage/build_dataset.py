@@ -24,9 +24,10 @@ class DatasetBuilder:
     _DATASET_DIR = DIR_DATASETS_BUILD
     _POS_LABEL = POS_LABEL
     _NEG_LABEL = NEG_LABEL
-    _N_MAX_CORES = mp.cpu_count() - 2
+    _N_MAX_CORES = mp.cpu_count() - 3
     _SETTER_CORE = _N_MAX_CORES
     _READER_CORE = _SETTER_CORE + 1
+    _RECODER_CORE = _READER_CORE + 1
     _LOG_DIR = DIR_LOG
     
     def _reset_volt(self):
@@ -66,10 +67,10 @@ class DatasetBuilder:
                 for k, kwargs in backgrounds.items()
             ]
         )
-        self.disturber_ = DisturberBackground(cores=[self._N_MAX_CORES], **disturber) if disturber else None
+        self.disturber_ = DisturberBackground(cores=[self._SETTER_CORE], **disturber) if disturber else None
         
         # Reader
-        self.recorder_ = VoltRecorder(self._SETTER_CORE, self._READER_CORE)
+        self.recorder_ = VoltRecorder(self._RECODER_CORE, self._READER_CORE)
 
         # File paths
         self.target_ = os.path.join(self._DATASET_DIR, self.label_, self.name_)
@@ -220,13 +221,17 @@ def main():
         builder = DatasetGroup.from_config(find_config(args.config, DIR_DATASETS_GROUP))
     else:
         builder = DatasetBuilder.from_config(find_config(args.config))
-    data = builder.build(replace=args.replace)
+    data, label = builder.build(replace=args.replace)
     
     if args.test:
-        with open(".temp/test_dataset", "w") as fp:
-            fp.write("\n".join([str(t) for t in data[0]]))
-        p = Popen(["python3", f"{DIR_UTILS}/plot_voltage.py", ".temp/test_dataset", ".temp/temp.png"])
-        p.wait()
+        print("Save figure...")
+        sample = data[0]
+        from utils.plot_voltage import plot_voltage
+        import matplotlib.pyplot as plt
+        
+        fig, ax = plt.subplots(figsize=(10, 6))
+        plot_voltage(sample, "sample", ax=ax)
+        fig.savefig(".log/build_sample.png")
     
     # command line
     while 1:
